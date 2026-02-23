@@ -47,11 +47,11 @@ const Electron = ({ radius, speed, offset, color, isPaused }: { radius: number; 
       onPointerOut={() => setHovered(false)}
     >
       <mesh>
-        <sphereGeometry args={[0.08, 16, 16]} />
-        <meshStandardMaterial color={color} emissive={color} emissiveIntensity={2} />
+        <sphereGeometry args={[0.1, 16, 16]} />
+        <meshStandardMaterial color={color} emissive={color} emissiveIntensity={hovered ? 4 : 1.5} />
       </mesh>
-      <pointLight intensity={0.5} distance={1} color={color} />
-      {hovered && <Tooltip text="אלקטרון" />}
+      <pointLight intensity={0.8} distance={2} color={color} />
+      {hovered && <Tooltip text="אלקטרון (מטען שלילי)" />}
     </group>
   );
 };
@@ -71,10 +71,17 @@ const Nucleus = ({ protons, neutrons }: { protons: number; neutrons: number }) =
   const particles = useMemo(() => {
     const pts = [];
     const total = protons + neutrons;
+    // Scale radius based on number of particles for better distribution
+    const baseRadius = 0.15 * Math.pow(total, 1/3);
+    
     for (let i = 0; i < total; i++) {
       const phi = Math.acos(-1 + (2 * i) / total);
       const theta = Math.sqrt(total * Math.PI) * phi;
-      const r = 0.3;
+      
+      // Add a bit of randomness to make it look more like a cluster
+      const jitter = 0.05;
+      const r = baseRadius + (Math.random() - 0.5) * jitter;
+      
       pts.push({
         pos: [
           r * Math.cos(theta) * Math.sin(phi),
@@ -98,14 +105,16 @@ const Nucleus = ({ protons, neutrons }: { protons: number; neutrons: number }) =
         >
           <sphereGeometry args={[0.12, 12, 12]} />
           <meshStandardMaterial 
-            color={p.isProton ? "#ff4444" : "#4444ff"} 
-            roughness={0.3}
-            metalness={0.8}
+            color={p.isProton ? "#ff3333" : "#3366ff"} 
+            emissive={p.isProton ? "#ff0000" : "#0000ff"}
+            emissiveIntensity={hoveredIndex === i ? 2 : 0.5}
+            roughness={0.2}
+            metalness={0.9}
           />
-          {hoveredIndex === i && <Tooltip text={p.isProton ? "פרוטון" : "ניוטרון"} />}
+          {hoveredIndex === i && <Tooltip text={p.isProton ? "פרוטון (מטען חיובי)" : "ניוטרון (מטען ניטרלי)"} />}
         </mesh>
       ))}
-      <pointLight intensity={2} distance={5} color="white" />
+      <pointLight intensity={3} distance={10} color="white" />
     </group>
   );
 };
@@ -114,16 +123,21 @@ const AtomModel = ({ element, isPaused }: { element: ElementData; isPaused: bool
   const protons = element.number;
   const neutrons = Math.round(parseFloat(element.atomicMass)) - protons;
   
+  // Stable rotations for orbits based on shell index
+  const orbitRotations = useMemo(() => {
+    return element.shells.map((_, i) => [
+      (i * 0.5) % Math.PI,
+      (i * 1.2) % Math.PI,
+      (i * 0.8) % Math.PI
+    ] as [number, number, number]);
+  }, [element.shells]);
+  
   return (
     <group>
       <Nucleus protons={protons} neutrons={neutrons} />
       {element.shells.map((count, shellIndex) => {
         const radius = (shellIndex + 1) * 1.2;
-        const rotation: [number, number, number] = [
-          Math.random() * Math.PI,
-          Math.random() * Math.PI,
-          Math.random() * Math.PI
-        ];
+        const rotation = orbitRotations[shellIndex];
         
         return (
           <group key={shellIndex}>
@@ -186,6 +200,14 @@ export default function App() {
   const [showList, setShowList] = useState(true);
   const [background, setBackground] = useState<keyof typeof Backgrounds>('space');
   const [isPaused, setIsPaused] = useState(false);
+
+  const controlsRef = useRef<any>(null);
+
+  const resetCamera = () => {
+    if (controlsRef.current) {
+      controlsRef.current.reset();
+    }
+  };
 
   const filteredElements = useMemo(() => {
     return elements.filter(e => 
@@ -286,31 +308,53 @@ export default function App() {
                     </div>
                   </div>
 
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="bg-zinc-900/80 p-3 rounded-xl border border-white/5">
+                      <div className="text-[10px] uppercase tracking-widest text-zinc-500 mb-1">פרוטונים</div>
+                      <div className="text-lg font-mono text-red-400">{selectedElement.number}</div>
+                    </div>
+                    <div className="bg-zinc-900/80 p-3 rounded-xl border border-white/5">
+                      <div className="text-[10px] uppercase tracking-widest text-zinc-500 mb-1">ניוטרונים</div>
+                      <div className="text-lg font-mono text-blue-400">{Math.round(parseFloat(selectedElement.atomicMass)) - selectedElement.number}</div>
+                    </div>
+                  </div>
+
                   <div className="space-y-2">
                     <h3 className="text-sm font-semibold flex items-center gap-2 text-zinc-300">
                       <Info className="w-4 h-4" />
                       מידע כללי
                     </h3>
-                    <p className="text-sm text-zinc-300 leading-relaxed bg-black/20 p-3 rounded-xl border border-white/5">
+                    <p className="text-sm text-zinc-300 leading-relaxed bg-black/40 backdrop-blur-sm p-4 rounded-xl border border-white/10 shadow-inner">
                       {selectedElement.hebrewSummary}
                     </p>
                   </div>
 
                   {/* Particle Legend */}
-                  <div className="space-y-3 pt-4 border-t border-white/10">
-                    <h3 className="text-sm font-semibold text-zinc-300">מקרא חלקיקים</h3>
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-3 text-xs">
-                        <div className="w-3 h-3 rounded-full bg-[#ff4444] shadow-[0_0_8px_#ff4444]" />
-                        <span className="text-zinc-400"><strong className="text-zinc-200">פרוטונים:</strong> חלקיקים חיוביים בגרעין.</span>
+                  <div className="space-y-4 pt-4 border-t border-white/10">
+                    <h3 className="text-sm font-semibold text-zinc-300">מהו מבנה האטום?</h3>
+                    <div className="space-y-3">
+                      <div className="flex flex-col gap-1">
+                        <div className="flex items-center gap-3 text-xs">
+                          <div className="w-3 h-3 rounded-full bg-[#ff3333] shadow-[0_0_10px_#ff0000]" />
+                          <span className="text-zinc-200 font-bold">פרוטונים</span>
+                        </div>
+                        <p className="text-[11px] text-zinc-400 pr-6">חלקיקים בעלי מטען חשמלי חיובי הנמצאים בגרעין. מספר הפרוטונים קובע את זהות היסוד.</p>
                       </div>
-                      <div className="flex items-center gap-3 text-xs">
-                        <div className="w-3 h-3 rounded-full bg-[#4444ff] shadow-[0_0_8px_#4444ff]" />
-                        <span className="text-zinc-400"><strong className="text-zinc-200">ניוטרונים:</strong> חלקיקים ניטרליים בגרעין.</span>
+                      
+                      <div className="flex flex-col gap-1">
+                        <div className="flex items-center gap-3 text-xs">
+                          <div className="w-3 h-3 rounded-full bg-[#3366ff] shadow-[0_0_10px_#0000ff]" />
+                          <span className="text-zinc-200 font-bold">ניוטרונים</span>
+                        </div>
+                        <p className="text-[11px] text-zinc-400 pr-6">חלקיקים ללא מטען חשמלי (ניטרליים) הנמצאים בגרעין ומסייעים ביציבותו.</p>
                       </div>
-                      <div className="flex items-center gap-3 text-xs">
-                        <div className="w-3 h-3 rounded-full bg-[#ffff00] shadow-[0_0_8px_#ffff00]" />
-                        <span className="text-zinc-400"><strong className="text-zinc-200">אלקטרונים:</strong> חלקיקים שליליים הנעים מסביב.</span>
+
+                      <div className="flex flex-col gap-1">
+                        <div className="flex items-center gap-3 text-xs">
+                          <div className="w-3 h-3 rounded-full bg-[#ffff00] shadow-[0_0_10px_#ffff00]" />
+                          <span className="text-zinc-200 font-bold">אלקטרונים</span>
+                        </div>
+                        <p className="text-[11px] text-zinc-400 pr-6">חלקיקים קטנים מאוד בעלי מטען שלילי הנעים במהירות עצומה מסביב לגרעין במסלולים (קליפות).</p>
                       </div>
                     </div>
                   </div>
@@ -408,6 +452,13 @@ export default function App() {
               <Maximize2 className="w-4 h-4" />
             </button>
             <button 
+              onClick={resetCamera}
+              className="p-2.5 bg-black/60 backdrop-blur-md rounded-xl border border-white/10 text-zinc-400 hover:text-white transition-all shadow-lg"
+              title="אפס מצלמה"
+            >
+              <RefreshCw className="w-4 h-4" />
+            </button>
+            <button 
               onClick={resetLayout}
               className="p-2.5 bg-black/60 backdrop-blur-md rounded-xl border border-white/10 text-zinc-400 hover:text-white transition-all shadow-lg"
               title="אפס פריסה"
@@ -430,7 +481,7 @@ export default function App() {
               >
                 <Canvas shadows>
                   <PerspectiveCamera makeDefault position={[0, 0, 10]} fov={50} />
-                  <OrbitControls enableDamping dampingFactor={0.05} />
+                  <OrbitControls ref={controlsRef} enableDamping dampingFactor={0.05} />
                   <ambientLight intensity={0.5} />
                   <spotLight position={[10, 10, 10]} angle={0.15} penumbra={1} intensity={1} castShadow />
                   <Suspense fallback={null}>
@@ -462,7 +513,14 @@ export default function App() {
                         "w-14 h-16 rounded-lg border flex flex-col items-center justify-center transition-all relative group",
                         selectedElement.number === element.number 
                           ? "bg-emerald-500/20 border-emerald-500 scale-110 z-10 shadow-[0_0_15px_rgba(16,185,129,0.3)]" 
-                          : "bg-zinc-900/60 border-white/5 hover:border-white/20 hover:scale-105"
+                          : searchTerm && (
+                              element.hebrewName.includes(searchTerm) || 
+                              element.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                              element.symbol.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                              element.number.toString().includes(searchTerm)
+                            )
+                            ? "bg-emerald-500/10 border-emerald-500/50 scale-105 z-10"
+                            : "bg-zinc-900/60 border-white/5 hover:border-white/20 hover:scale-105"
                       )}
                     >
                       <span className="absolute top-1 right-1 text-[7px] font-mono text-zinc-500">{element.number}</span>
